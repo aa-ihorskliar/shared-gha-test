@@ -2,17 +2,48 @@ name: Run Playwright End-to-End Tests
 on:
   workflow_call:
     inputs:
-      path:
+      project:
         required: true
         type: string
+      browser:
+          required: true
+          type: string
+      stagingId:
+          required: true
+          type: string
 jobs:
   trigger-playwright-test:
-    name: Run WF
+    name: Run tests
     runs-on: ubuntu-latest
+    container:
+        image: mcr.microsoft.com/playwright:v1.33.0-jammy
     steps:
       - uses: actions/checkout@v3
+        with:
+          repository: agencyanalytics/public-ui
       - uses: actions/setup-node@v3
         with:
           node-version: '18'
-      - name: LOG
-        run: echo ${{ inputs.path }}
+      - name: Cache node modules
+        uses: actions/cache@v2
+        with:
+          path: '**/node_modules'
+          key: npm-${{hashFiles('**/package.json')}}
+      - run: npm install --prefer-offline --no-audit
+      - name: Run playwright test
+        id: tests
+        env:
+          AA_UI_HOST: https://app.${{ inputs.stagingId }}.stagingagencyanalytics.com
+          AA_API_HOST: https://php-common.${{ inputs.stagingId }}.stagingagencyanalytics.com
+          CI: true
+        run: npm run test:playwright -- --project=${{ inputs.project }}
+        continue-on-error: true
+        working-directory: ./
+      - name: Archive playwright-report
+        uses: actions/upload-artifact@v3
+        with:
+          name: playwright-report-${{ inputs.project }}
+          path: testing/playwright/playwright-report
+      - name: Check on failures
+        if: steps.tests.outcome != 'success'
+        run: exit 1
